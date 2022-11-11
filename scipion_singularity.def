@@ -1,0 +1,112 @@
+Bootstrap: docker
+From:nvidia/cuda:11.7.0-cudnn8-devel-ubuntu20.04
+
+%labels
+MAINTAINER helder.ribeiro@lnbio.cnpem.br
+
+%environment
+export LD_LIBRARY_PATH=/usr/lib64:/opt/software/lib:$LD_LIBRARY_PATH
+export PATH=/opt/.scipion3/bin/:$PATH
+
+%post
+export TZ='America/Sao_Paulo'
+export DEBIAN_FRONTEND=noninteractive
+
+#install scipion dependencies
+apt-get update
+apt-get install --assume-yes dialog gcc-8 g++-8 libopenmpi-dev make python3-pip python3-tk openmpi-bin libsqlite3-dev libfftw3-dev libhdf5-dev python3-dev python3-numpy python3-scipy python3-mpi4py default-jdk libtiff-dev wget git cmake libtiff5-dev libpng-dev libxft-dev python3-pil python3-pil.imagetk
+
+#get installer
+pip3 install --user scipion-installer
+
+#install core scipion
+python3 -m scipioninstaller -noXmipp -noAsk /opt
+
+#create scipion.conf file
+/opt/scipion3 config --overwrite --unattended
+
+#change scipion.conf to correct paths
+echo "" >> /opt/config/scipion.conf
+echo "CUDA = True" >> /opt/config/scipion.conf
+echo "CUDA_BIN = /usr/local/cuda-11.7/bin" >> /opt/config/scipion.conf
+echo "CUDA_LIB = /usr/local/cuda-11.7/lib64" >> /opt/config/scipion.conf
+echo "MPI_BINDIR = /usr/bin" >> /opt/config/scipion.conf
+echo "MPI_LIBDIR = /usr/lib/x86_64-linux-gnu/openmpi/lib/" >> /opt/config/scipion.conf
+echo "MPI_INCLUDE = /usr/lib/x86_64-linux-gnu/openmpi/include/" >> /opt/config/scipion.conf
+echo "OPENCV = False" >> /opt/config/scipion.conf
+
+#install plugins
+/opt/scipion3 installp -p scipion-em-xmipp -j 6 -p scipion-em-relion -j 6 | tee -a install.log
+/opt/scipion3 installp -p scipion-em-eman2 -j 6 -p scipion-em-gctf -j 6 -p scipion-em-motioncorr -j 6 -p scipion-em-sphire -j 6 -p scipion-em-cistem -j 6 -p scipion-em-spider -j 6 -p scipion-em-localrec -j 6 | tee -a install2.log
+
+#edit parameters to be able to use slurm
+echo "slurmadmin:x:300:300::/usr/lib64/slurm:/bin/false" >> /etc/passwd
+echo "slurmadmin:x:300:" >> /etc/group
+adduser --disabled-password --gecos "" slurm
+
+#create a hosts.conf slurm file
+cat << "EOF" > /opt/config/hosts.conf
+[localhost]
+PARALLEL_COMMAND = mpirun -np %_(JOB_NODES)d -bynode %_(COMMAND)s
+NAME = SLURM
+MANDATORY = False
+SUBMIT_COMMAND = sbatch %_(JOB_SCRIPT)s
+CANCEL_COMMAND = scancel %_(JOB_ID)s
+CHECK_COMMAND = squeue -h -j %_(JOB_ID)s
+SUBMIT_TEMPLATE = #!/bin/bash
+    ### Inherit all current environment variables
+    #SBATCH --export=ALL
+    ### Job name
+    #SBATCH -J %_(JOB_NAME)s
+    ### Outputs
+    #SBATCH -o %_(JOB_LOGS)s.out
+    #SBATCH -e %_(JOB_LOGS)s.err
+    ### Partition (queue) name
+    ### if the system has only 1 queue, it can be omitted
+    ### if you want to specify the queue, ensure the name in the scipion dialog matches
+    ### a slurm partition, then leave only 1 # sign in the next line
+    #SBATCH -p %_(JOB_QUEUE)s
+
+    ### Specify time, number of nodes (tasks), cores and memory(MB) for your job
+    #SBATCH --ntasks=%_(JOB_NODES)d --cpus-per-task=%_(JOB_THREADS)d --gres=gpu:%_(GPU_COUNT)s
+    # Use as working dir the path where sbatch was launched
+    WORKDIR=$SLURM_SUBMIT_DIR
+
+    #################################
+    ### Set environment variable to know running mode is non interactive
+    export XMIPP_IN_QUEUE=1
+
+    cd $WORKDIR
+    # Make a copy of node file
+    echo $SLURM_JOB_NODELIST > %_(JOB_NODEFILE)s
+    # Calculate the number of processors allocated to this run.
+    NPROCS=`wc -l < $SLURM_JOB_NODELIST`
+    # Calculate the number of nodes allocated.
+    NNODES=`uniq $SLURM_JOB_NODELIST | wc -l`
+
+    ### Display the job context
+    echo Running on host `hostname`
+    echo Time is `date`
+    echo Working directory is `pwd`
+    echo Using ${NPROCS} processors across ${NNODES} nodes
+    echo NODE LIST - config:
+    echo $SLURM_JOB_NODELIST
+    echo CUDA_VISIBLE_DEVICES: $CUDA_VISIBLE_DEVICES
+    #################################
+    # echo '%_(JOB_COMMAND)s' >> /tmp/slurm-jobs.log
+    singularity exec --nv /opt/images/scipion_singularity.sif %_(JOB_COMMAND)s
+    find "$SLURM_SUBMIT_DIR" -type f -user $USER -perm 644 -exec chmod 664 {} +
+    
+QUEUES = {
+    "debug-gpu": [["GPU_COUNT", "1", "Number of GPUs", "Select the number of GPUs if protocol has been set up to use them"],
+              ["QUEUE_FOR_JOBS", "N", "Use queue for jobs", "Send individual jobs to queue"]],
+    "short-gpu": [["GPU_COUNT", "1", "Number of GPUs", "Select the number of GPUs if protocol has been set up to use them"],
+                ["QUEUE_FOR_JOBS", "N", "Use queue for jobs", "Send individual jobs to queue"]],
+    "long-gpu": [["GPU_COUNT", "1", "Number of GPUs", "Select the number of GPUs if protocol has been set up to use them"],
+               ["QUEUE_FOR_JOBS", "N", "Use queue for jobs", "Send individual jobs to queue"]]}
+EOF
+
+
+%runscript
+exec '$@'
+
