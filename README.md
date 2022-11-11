@@ -2,6 +2,16 @@
 
 This repository contains a singularity definition file created to install scipion core and cryo-em plugins. This container can be executed to run scipion in single/master node or to send jobs to queue in a slurm based scheduled routine. 
 
+# Configuring .def file 
+
+Before to build the scipion image from the definition file, modify the .def file to set the path where the built image (.sif) file will be located.
+You can to this by manually editing the .def file using a text editor and replacing the string /path/to/sif (line 97) by the correct absolute .sif path (ex: /opt/singularity_example.sif).
+Alternatively you can use sed:
+```console
+sed -i 's#/path/to/sif#/path/example/sif#g' singularity_example.def
+```
+This change will affect the scipion hosts.conf file and scipion will be able to run call the scipion singularity image in its sbatch file
+
 # Building the image 
 
 To build the scipion image i.e. convert the definition .def file to the singularity image .sif file, please run the following command: 
