@@ -6,7 +6,9 @@ This repository contains a singularity definition file created to install scipio
 
 To build the scipion image i.e. convert the definition .def file to the singularity image .sif file, please run the following command: 
 
-$sudo singularity build --nv /path/to/singularity/.sif /path/to/singularity/.def
+```console
+sudo singularity build --nv /path/to/singularity/.sif /path/to/singularity/.def
+```
 
 # Executing singularity image
 
