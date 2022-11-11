@@ -29,4 +29,5 @@ singularity exec --nv --bind /usr/bin/sbatch:/usr/bin/sbatch:ro,/usr/bin/scancel
 ```
 
 # Notes 
-* The singularity execution command is 
+* The singularity execution command above uses a bind flag to allow the container to have access to the slurm binaries, libraries and dependencies. This will be simplified in the future.  
+* 
